@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -27,10 +28,19 @@ func cleanupTestFiles() {
 	os.Remove(testFile)
 	os.Remove(testFileNoFrontmatter)
 	os.Remove(testFileEmpty)
+	os.Remove("frontmatter") // Remove binary
 }
 
 func runCmd(args ...string) (string, string, error) {
-	cmd := exec.Command("go", append([]string{"run", "main.go"}, args...)...)
+	// Build the binary first if it doesn't exist
+	if _, err := os.Stat("./frontmatter"); os.IsNotExist(err) {
+		buildCmd := exec.Command("go", "build", "-o", "frontmatter", "main.go")
+		if err := buildCmd.Run(); err != nil {
+			return "", "", fmt.Errorf("failed to build binary: %w", err)
+		}
+	}
+
+	cmd := exec.Command("./frontmatter", args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -68,6 +78,22 @@ func assertNoError(t *testing.T, err error, stderr string) {
 		if strings.Contains(stderr, "Error:") || strings.Contains(stderr, "cannot find package") || strings.Contains(stderr, "Failed") || strings.Contains(stderr, "failed") {
 			// t.Logf("Potentially problematic stderr: %s", stderr) // Commenting out to reduce noise for now
 		}
+	}
+}
+
+func assertExitCode(t *testing.T, err error, expectedCode int) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("Expected exit code %d, but command succeeded", expectedCode)
+	}
+
+	// Check if it's an exec.ExitError
+	if exitError, ok := err.(*exec.ExitError); ok {
+		if exitError.ExitCode() != expectedCode {
+			t.Fatalf("Expected exit code %d, but got %d", expectedCode, exitError.ExitCode())
+		}
+	} else {
+		t.Fatalf("Expected exit code %d, but got non-exit error: %v", expectedCode, err)
 	}
 }
 
@@ -206,11 +232,12 @@ func TestGetFieldFromFileWithoutFrontmatter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, stderr, err := runCmd("get", "message", testFileNoFrontmatter)
-	assertNoError(t, err, stderr)
+	stdout, _, err := runCmd("get", "message", testFileNoFrontmatter)
+	assertExitCode(t, err, 2)
+	// Should not output anything to stdout when returning error code 2 (not found)
 	trimmedStdout := strings.TrimSpace(stdout)
-	if trimmedStdout != "null" && trimmedStdout != "" {
-		t.Errorf("Expected 'null' or empty string for non-existent frontmatter/key, got '%s'", trimmedStdout)
+	if trimmedStdout != "" {
+		t.Errorf("Expected no output for 404 case, got '%s'", trimmedStdout)
 	}
 }
 
@@ -221,14 +248,12 @@ func TestGetNonExistentField(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, stderr, err := runCmd("get", "nonexistent", testFile)
-	assertNoError(t, err, stderr)
+	stdout, _, err := runCmd("get", "nonexistent", testFile)
+	assertExitCode(t, err, 2)
+	// Should not output anything to stdout when returning error code 2 (not found)
 	trimmedStdout := strings.TrimSpace(stdout)
-	if trimmedStdout != "null" && trimmedStdout != "" {
-		t.Errorf("Expected 'null' or empty string for non-existent key, got '%s'", trimmedStdout)
-	}
-	if strings.Contains(stdout, "exists: yes") {
-		t.Errorf("Expected not to find 'exists: yes' when getting 'nonexistent', but got: %s", stdout)
+	if trimmedStdout != "" {
+		t.Errorf("Expected no output for 404 case, got '%s'", trimmedStdout)
 	}
 }
 
@@ -403,4 +428,128 @@ func TestSetInSubdirectory(t *testing.T) {
 	_, stderr, err := runCmd("set", "message=HelloSub", testFileInSubDir)
 	assertNoError(t, err, stderr)
 	assertFileContains(t, testFileInSubDir, "message: HelloSub")
+}
+
+func TestOnlyFrontmatterFileCases(t *testing.T) {
+	// Plik z samym frontmatter, bez body
+	file := "only_fm.md"
+	content := "---\na: 1\nb: 2\n---"
+	err := os.WriteFile(file, []byte(content), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(file)
+
+	// get all
+	stdout, stderr, err := runCmd("get", file)
+	assertNoError(t, err, stderr)
+	if !strings.Contains(stdout, "a: 1") || !strings.Contains(stdout, "b: 2") {
+		t.Errorf("Expected frontmatter fields a and b, got: %s", stdout)
+	}
+
+	// set new field
+	_, stderr, err = runCmd("set", "new=3", file)
+	assertNoError(t, err, stderr)
+	data, _ := os.ReadFile(file)
+	sData := string(data)
+	if !strings.Contains(sData, "new: 3") || !strings.Contains(sData, "a: 1") {
+		t.Errorf("Expected new and a in frontmatter, got: %s", sData)
+	}
+
+	// delete frontmatter
+	_, stderr, err = runCmd("set", "--delete", file)
+	assertNoError(t, err, stderr)
+	data, _ = os.ReadFile(file)
+	sData = string(data)
+	if strings.TrimSpace(sData) != "" {
+		t.Errorf("Expected file to be empty after delete, got: %s", sData)
+	}
+
+	// dry-run delete
+	stdout, stderr, err = runCmd("set", "--delete", "--dry-run", file)
+	assertNoError(t, err, stderr)
+	if strings.TrimSpace(stdout) != "" {
+		t.Errorf("Expected dry-run delete to produce empty output, got: %s", stdout)
+	}
+}
+
+func TestBodyWithSeparators(t *testing.T) {
+	file := "sep_body.md"
+	content := "---\nkey: val\n---\nLine1\n---\nLine2\n---\nLine3"
+	err := os.WriteFile(file, []byte(content), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(file)
+
+	// ensure get body correctly ignores extra separators
+	stdout, stderr, err := runCmd("get", file)
+	assertNoError(t, err, stderr)
+	assertStringContains(t, stdout, "key: val")
+
+	// delete frontmatter should leave rest including separators
+	_, stderr, err = runCmd("set", "--delete", file)
+	assertNoError(t, err, stderr)
+	data, _ := os.ReadFile(file)
+	sData := string(data)
+	if !strings.Contains(sData, "Line1") || !strings.Contains(sData, "---") {
+		t.Errorf("Expected body with separators preserved, got: %s", sData)
+	}
+}
+
+func TestOverrideScalarToMap(t *testing.T) {
+	file := "override.md"
+	content := "---\na: scalar\n---\nBody"
+	err := os.WriteFile(file, []byte(content), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(file)
+
+	_, stderr, err := runCmd("set", "a.b=child", file)
+	assertNoError(t, err, stderr)
+	data, _ := os.ReadFile(file)
+	sData := string(data)
+	// a should now be a map with b: child
+	if !strings.Contains(sData, "a:") || !strings.Contains(sData, "b: child") {
+		t.Errorf("Expected a as map with b, got: %s", sData)
+	}
+	// old scalar should be gone
+	if strings.Contains(sData, "scalar") {
+		t.Errorf("Old scalar value should be removed, got: %s", sData)
+	}
+}
+
+func TestJSONMapValueParsing(t *testing.T) {
+	file := "json.md"
+	err := os.WriteFile(file, []byte(""), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(file)
+
+	// ustawienie wartości jako JSON-like map
+	_, stderr, err := runCmd("set", `config={"x":1,"y":"two"}`, file)
+	assertNoError(t, err, stderr)
+	data, _ := os.ReadFile(file)
+	sData := string(data)
+	if !strings.Contains(sData, "config:") || !strings.Contains(sData, "x: 1") || !strings.Contains(sData, "y: two") {
+		t.Errorf("Expected config map with x and y, got: %s", sData)
+	}
+}
+
+func TestGetAllFromFileWithoutFrontmatter(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "No frontmatter here."
+	if err := setupTestFileNoFrontmatter(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := runCmd("get", testFileNoFrontmatter)
+	assertExitCode(t, err, 2)
+	// Should not output anything to stdout when returning error code 2 (not found)
+	trimmedStdout := strings.TrimSpace(stdout)
+	if trimmedStdout != "" {
+		t.Errorf("Expected no output for 404 case, got '%s'", trimmedStdout)
+	}
 }

@@ -42,6 +42,10 @@ Wyświetlenie całego frontmatter z pliku na stdout:
     frontmatter get file.md
 ``` 
 
+Pobranie nieistniejącego pola powinno zwrócić kod błędu 2 i nie wypisać niczego na stdout.
+
+Pobranie frontmatter z pliku, które nie zawiera frontmatter powinno zwrócić kod błędu 2 i nie wypisywać niczego na stdout.
+
 
 
 

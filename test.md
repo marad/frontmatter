@@ -1,8 +1,5 @@
 ---
-other: value
-title:
-  a: Ola!
-  b: World
+hello: world
 ---
 
 

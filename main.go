@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,8 +16,25 @@ import (
 
 const frontmatterSeparator = "---"
 
+// ExitError represents an error with a specific exit code
+type ExitError struct {
+	Code    int
+	Message string
+}
+
+func (e *ExitError) Error() string {
+	return e.Message
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		if exitErr, ok := err.(*ExitError); ok {
+			// Don't print error for "not found" cases (code 2)
+			if exitErr.Code != 2 {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			}
+			os.Exit(exitErr.Code)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -94,14 +113,15 @@ func readFileContent(filePath string) (string, string, error) {
 			return "", "", fmt.Errorf("failed to read file: %w", err)
 		}
 
-		if strings.TrimSpace(line) == frontmatterSeparator {
+		trimmed := strings.TrimSpace(line)
+		// Treat only first two separators as frontmatter delimiters
+		if trimmed == frontmatterSeparator && separatorCount < 2 {
 			separatorCount++
 			if separatorCount == 1 {
 				inFrontmatter = true
 			} else if separatorCount == 2 {
 				inFrontmatter = false
 			}
-			// Don't write separator to frontmatterContent itself
 			if err == io.EOF {
 				break
 			}
@@ -151,7 +171,11 @@ func serializeFrontmatter(data map[string]interface{}) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize YAML: %w", err)
 	}
-	return b.String(), nil
+	raw := b.String()
+	// Remove unnecessary quotes around simple keys
+	re := regexp.MustCompile(`(?m)^(\s*)"([A-Za-z0-9_-]+)":`)
+	cleaned := re.ReplaceAllString(raw, `$1$2:`)
+	return cleaned, nil
 }
 
 func writeFileContent(filePath, fmString, bodyString string, dryRun bool) error {
@@ -194,18 +218,8 @@ func handleGet(args []string, dryRun bool) error {
 	}
 
 	if strings.TrimSpace(fmString) == "" {
-		// No frontmatter found or it's empty
-		if len(keys) > 0 {
-			// If specific keys were requested, indicate they are not found (or print nothing/null)
-			// For simplicity, we can print nothing or a specific message.
-			// fmt.Fprintf(os.Stderr, "No frontmatter found or key not found.\n")
-			// return fmt.Errorf("no frontmatter found or key not found")
-			fmt.Println("null") // Or just empty output
-			return nil
-		}
-		// If no keys, and no frontmatter, print nothing (or an empty YAML doc like {})
-		fmt.Println("{}")
-		return nil
+		// No frontmatter found or it's empty - return error code 2 (not found)
+		return &ExitError{Code: 2, Message: "frontmatter not found"}
 	}
 
 	data, err := parseFrontmatter(fmString)
@@ -228,9 +242,8 @@ func handleGet(args []string, dryRun bool) error {
 	key := keys[0]
 	value, found := getValueByPath(data, key)
 	if !found {
-		// fmt.Fprintf(os.Stderr, "Key '%s' not found in frontmatter.\n", key)
-		fmt.Println("null") // Or just empty output
-		return nil          // Not an error, just not found
+		// Key not found - return error code 2 (not found)
+		return &ExitError{Code: 2, Message: "field not found"}
 	}
 
 	// If value is a map or slice, YAML marshal it. Otherwise, print directly.
@@ -300,6 +313,20 @@ func handleSet(args []string, dryRun bool) error {
 			} else {
 				// If YAML parsing fails, treat as string
 				parsedValue = strings.Trim(valueStr, "\"") // Trim quotes if it was a quoted string
+			}
+		} else if strings.HasPrefix(valueStr, "{") && strings.HasSuffix(valueStr, "}") {
+			// Attempt to parse JSON-like map first
+			var jsonValue map[string]interface{}
+			if err := json.Unmarshal([]byte(valueStr), &jsonValue); err == nil {
+				parsedValue = jsonValue
+			} else {
+				// Fallback to YAML
+				var yamlValue interface{}
+				if err2 := yaml.Unmarshal([]byte(valueStr), &yamlValue); err2 == nil {
+					parsedValue = yamlValue
+				} else {
+					parsedValue = strings.Trim(valueStr, "\"")
+				}
 			}
 		} else {
 			parsedValue = strings.Trim(valueStr, "\"") // Default to string, trim quotes
