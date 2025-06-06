@@ -8,9 +8,11 @@
 
 = Frontmatter CLI Tool
 
-image:https://img.shields.io/badge/Go-1.24.1-blue.svg[Go Version]
+image:https://github.com/username/frontmatter/workflows/CI/badge.svg[CI Status]
+image:https://img.shields.io/badge/Go-1.21+-blue.svg[Go Version]
 image:https://img.shields.io/badge/License-MIT-green.svg[License]
 image:https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey[Platform]
+image:https://codecov.io/gh/username/frontmatter/branch/main/graph/badge.svg[Coverage Status]
 
 A fast, efficient CLI tool for managing YAML frontmatter in text files. Built with Go and optimized for performance with large files.
 
@@ -256,8 +258,17 @@ Your document content goes here...
 
 === Requirements
 
-* Go 1.24.1 or later
+* Go 1.21+ (tested on 1.21.x through 1.24.x)
 * Dependencies: `gopkg.in/yaml.v3`
+
+=== CI/CD
+
+The project uses GitHub Actions for continuous integration and delivery:
+
+* **Automated testing** on multiple Go versions (1.21.x - 1.24.x)
+* **Cross-platform builds** (Linux, macOS, Windows, FreeBSD)
+* **Security scanning** with gosec
+* **Automated releases** with pre-built binaries
 
 === Building
 

@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: 1.24.x
+    
+    - name: Run tests
+      run: go test -v ./...
+    
+    - name: Build binaries
+      run: |
+        # Create dist directory
+        mkdir -p dist
+        
+        # Build for multiple platforms
+        GOOS=linux GOARCH=amd64 go build -o dist/frontmatter-linux-amd64 main.go
+        GOOS=linux GOARCH=arm64 go build -o dist/frontmatter-linux-arm64 main.go
+        GOOS=darwin GOARCH=amd64 go build -o dist/frontmatter-darwin-amd64 main.go
+        GOOS=darwin GOARCH=arm64 go build -o dist/frontmatter-darwin-arm64 main.go
+        GOOS=windows GOARCH=amd64 go build -o dist/frontmatter-windows-amd64.exe main.go
+        GOOS=freebsd GOARCH=amd64 go build -o dist/frontmatter-freebsd-amd64 main.go
+    
+    - name: Create checksums
+      run: |
+        cd dist
+        sha256sum * > checksums.txt
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Extract version from tag
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        # Generate changelog from git commits since last tag
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -n "$PREVIOUS_TAG" ]; then
+          echo "## Changes since $PREVIOUS_TAG" > changelog.md
+          git log --pretty=format:"* %s" $PREVIOUS_TAG..HEAD >> changelog.md
+        else
+          echo "## Initial Release" > changelog.md
+          echo "* Initial release of frontmatter CLI tool" >> changelog.md
+        fi
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          dist/*
+        body_path: changelog.md
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
