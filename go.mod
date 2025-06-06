@@ -1,4 +1,4 @@
-module frontmatter
+module github.com/marad/frontmatter
 
 go 1.24.1
 

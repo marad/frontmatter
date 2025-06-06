@@ -35,7 +35,7 @@ A fast, efficient CLI tool for managing YAML frontmatter in text files. Built wi
 
 [source,bash]
 ----
-git clone https://github.com/username/frontmatter.git
+git clone https://github.com/marad/frontmatter.git
 cd frontmatter
 go build -o frontmatter main.go
 ----
@@ -44,7 +44,7 @@ go build -o frontmatter main.go
 
 [source,bash]
 ----
-go install github.com/username/frontmatter@latest
+go install github.com/marad/frontmatter@latest
 ----
 
 == Usage
