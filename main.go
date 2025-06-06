@@ -16,6 +16,14 @@ import (
 
 const frontmatterSeparator = "---"
 
+// FrontmatterInfo zawiera informacje o pozycji frontmatter w pliku
+type FrontmatterInfo struct {
+	Content  string
+	StartPos int64
+	EndPos   int64
+	HasFM    bool
+}
+
 // ExitError represents an error with a specific exit code
 type ExitError struct {
 	Code    int
@@ -211,17 +219,18 @@ func handleGet(args []string, dryRun bool) error {
 	filePath := args[len(args)-1]
 	keys := args[:len(args)-1]
 
-	fmString, _, err := readFileContent(filePath)
+	// Używamy zoptymalizowanego odczytu
+	info, err := readFrontmatterInfo(filePath)
 	if err != nil {
 		return err
 	}
 
-	if strings.TrimSpace(fmString) == "" {
+	if !info.HasFM || strings.TrimSpace(info.Content) == "" {
 		// No frontmatter found or it's empty - return error code 2 (not found)
 		return &ExitError{Code: 2, Message: "frontmatter not found"}
 	}
 
-	data, err := parseFrontmatter(fmString)
+	data, err := parseFrontmatter(info.Content)
 	if err != nil {
 		return err
 	}
@@ -268,17 +277,13 @@ func handleSet(args []string, dryRun bool) error {
 	filePath := args[len(args)-1]
 	setArgs := args[:len(args)-1]
 
-	fmString, bodyString, err := readFileContent(filePath)
+	// Używamy zoptymalizowanego odczytu
+	info, err := readFrontmatterInfo(filePath)
 	if err != nil {
-		// If file doesn't exist, readFileContent returns empty strings, which is fine.
-		// We only care about actual read errors here.
-		if !os.IsNotExist(err) { // Check if it's a genuine read error, not just "file not found"
-			return err
-		}
-		// If it does not exist, fmString and bodyString will be empty, which is handled.
+		return err
 	}
 
-	data, err := parseFrontmatter(fmString)
+	data, err := parseFrontmatter(info.Content)
 	if err != nil {
 		// If frontmatter is malformed, we might want to overwrite or error out.
 		// For now, let's try to proceed with an empty map if parsing fails, effectively overwriting.
@@ -341,7 +346,7 @@ func handleSet(args []string, dryRun bool) error {
 		return err
 	}
 
-	return writeFileContent(filePath, newFmString, bodyString, dryRun)
+	return writeOptimizedFrontmatter(filePath, newFmString, info, dryRun)
 }
 
 func handleDelete(args []string, dryRun bool) error {
@@ -352,6 +357,7 @@ func handleDelete(args []string, dryRun bool) error {
 	filePath := args[len(args)-1]
 	fieldsToDelete := args[:len(args)-1]
 
+	// Dla delete używamy bezpieczniejszej metody - całego odczytu pliku
 	fmString, bodyString, err := readFileContent(filePath)
 	if err != nil {
 		// If file doesn't exist, nothing to delete.
@@ -397,6 +403,186 @@ func handleDelete(args []string, dryRun bool) error {
 	}
 
 	return writeFileContent(filePath, newFmString, bodyString, dryRun)
+}
+
+// readFrontmatterInfo reads only the frontmatter section and returns position info
+func readFrontmatterInfo(filePath string) (*FrontmatterInfo, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &FrontmatterInfo{Content: "", StartPos: 0, EndPos: 0, HasFM: false}, nil
+		}
+		return nil, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+	var frontmatterContent strings.Builder
+	var bytesRead int64
+	separatorCount := 0
+
+	for {
+		line, err := reader.ReadString('\n')
+		bytesRead += int64(len(line))
+
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read file: %w", err)
+		}
+
+		trimmed := strings.TrimSpace(line)
+		if trimmed == frontmatterSeparator && separatorCount < 2 {
+			separatorCount++
+			if separatorCount == 2 {
+				// Znaleźliśmy koniec frontmatter
+				return &FrontmatterInfo{
+					Content:  frontmatterContent.String(),
+					StartPos: 0,
+					EndPos:   bytesRead,
+					HasFM:    true,
+				}, nil
+			}
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+
+		if separatorCount == 1 {
+			frontmatterContent.WriteString(line)
+		} else if separatorCount == 0 {
+			// Nie ma frontmatter na początku
+			if err == io.EOF || bytesRead > 1024 { // Sprawdź tylko pierwsze 1KB
+				return &FrontmatterInfo{Content: "", StartPos: 0, EndPos: 0, HasFM: false}, nil
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+	}
+
+	// Niepełny frontmatter lub brak
+	return &FrontmatterInfo{Content: "", StartPos: 0, EndPos: 0, HasFM: false}, nil
+}
+
+// readBodyFromPosition reads file content from a specific position to the end
+func readBodyFromPosition(filePath string, startPos int64) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	// Przejdź do pozycji po frontmatter
+	if _, err := file.Seek(startPos, 0); err != nil {
+		return "", fmt.Errorf("failed to seek to position %d: %w", startPos, err)
+	}
+
+	// Przeczytaj resztę pliku
+	bodyBytes, err := io.ReadAll(file)
+	if err != nil {
+		return "", fmt.Errorf("failed to read body content: %w", err)
+	}
+
+	return string(bodyBytes), nil
+}
+
+// writeOptimizedFrontmatter writes frontmatter using optimized strategy
+func writeOptimizedFrontmatter(filePath, newFmString string, info *FrontmatterInfo, dryRun bool) error {
+	if dryRun {
+		return writeFileContentForDryRun(filePath, newFmString, info)
+	}
+
+	// Dla bezpieczeństwa, zawsze używamy przepisania całego pliku
+	// In-place editing jest ryzykowne i może uszkodzić dane
+	return writeFileContentSafe(filePath, newFmString, info)
+}
+
+// writeFileContentForDryRun handles dry-run output efficiently
+func writeFileContentForDryRun(filePath, newFmString string, info *FrontmatterInfo) error {
+	var finalContent strings.Builder
+	hasFrontmatter := strings.TrimSpace(newFmString) != ""
+
+	if hasFrontmatter {
+		finalContent.WriteString(frontmatterSeparator)
+		finalContent.WriteString("\n")
+		finalContent.WriteString(newFmString)
+		if !strings.HasSuffix(newFmString, "\n") && len(newFmString) > 0 {
+			finalContent.WriteString("\n")
+		}
+		finalContent.WriteString(frontmatterSeparator)
+		finalContent.WriteString("\n")
+	}
+
+	// Dodaj body content jeśli istnieje
+	if info.HasFM && info.EndPos > 0 {
+		bodyContent, err := readBodyFromPosition(filePath, info.EndPos)
+		if err != nil {
+			return err
+		}
+		finalContent.WriteString(bodyContent)
+	} else if !info.HasFM {
+		// Cały plik to body
+		content, err := os.ReadFile(filePath)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil {
+			finalContent.WriteString(string(content))
+		}
+	}
+
+	fmt.Print(finalContent.String())
+	return nil
+}
+
+// writeFileContentSafe safely rewrites the entire file (fallback method)
+func writeFileContentSafe(filePath, newFmString string, info *FrontmatterInfo) error {
+	var finalContent strings.Builder
+	hasFrontmatter := strings.TrimSpace(newFmString) != ""
+
+	if hasFrontmatter {
+		finalContent.WriteString(frontmatterSeparator)
+		finalContent.WriteString("\n")
+		finalContent.WriteString(newFmString)
+		if !strings.HasSuffix(newFmString, "\n") && len(newFmString) > 0 {
+			finalContent.WriteString("\n")
+		}
+		finalContent.WriteString(frontmatterSeparator)
+		finalContent.WriteString("\n")
+	}
+
+	// Dodaj body content jeśli istnieje
+	if info.HasFM && info.EndPos > 0 {
+		bodyContent, err := readBodyFromPosition(filePath, info.EndPos)
+		if err != nil {
+			return err
+		}
+		finalContent.WriteString(bodyContent)
+	} else if !info.HasFM {
+		// Cały plik to body - przeczytaj go w całości
+		content, err := os.ReadFile(filePath)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err == nil {
+			finalContent.WriteString(string(content))
+		}
+	}
+
+	// Bezpieczny zapis: użyj pliku tymczasowego
+	tempFile := filePath + ".tmp"
+	if err := os.WriteFile(tempFile, []byte(finalContent.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write temporary file: %w", err)
+	}
+
+	// Atomowe przeniesienie
+	if err := os.Rename(tempFile, filePath); err != nil {
+		os.Remove(tempFile) // Oczyść w przypadku błędu
+		return fmt.Errorf("failed to rename temporary file: %w", err)
+	}
+
+	return nil
 }
 
 // setValueByPath sets a value in a nested map structure based on a dot-separated path.
