@@ -1,0 +1,35 @@
+= Changelog
+:toc: left
+:toclevels: 1
+:sectnums:
+:icons: font
+:experimental:
+:description: Changelog for Frontmatter CLI Tool
+:revdate: 2025-06-06
+
+All notable changes to this project will be documented in this file.
+
+The format is based on https://keepachangelog.com/en/1.0.0/[Keep a Changelog],
+and this project adheres to https://semver.org/spec/v2.0.0.html[Semantic Versioning].
+
+== [1.0.0] - 2025-06-06
+
+=== Added
+* Initial release of frontmatter CLI tool
+* Basic YAML frontmatter operations (get, set, delete)
+* Nested field support with dot notation (`object.field`)
+* Dry-run functionality with `--dry-run` flag
+* Performance optimizations for large files
+* Safe atomic file operations using temporary files
+* Comprehensive test suite with 30+ tests
+* Support for multiple data types (strings, integers, floats, booleans, arrays, objects)
+* Exit codes for scripting and automation (0=success, 1=error, 2=not found)
+* Memory-efficient streaming for large files
+* Optimized I/O operations (reads only frontmatter section for get operations)
+
+=== Technical Details
+* Built with Go 1.24.1
+* Uses `gopkg.in/yaml.v3` for YAML processing
+* Implements atomic writes to prevent data corruption
+* Optimized for files with large body content and small frontmatter
+* Test suite runs against compiled binary for end-to-end validation

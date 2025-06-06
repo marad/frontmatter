@@ -1,0 +1,316 @@
+= Frontmatter CLI Tool
+:toc: left
+:toclevels: 3
+// :sectnums:
+:source-highlighter: highlight.js
+:icons: font
+:experimental:
+:description: A powerful CLI tool for managing YAML frontmatter in text files
+:revdate: 2025-06-06
+
+image:https://img.shields.io/badge/Go-1.24.1-blue.svg[Go Version]
+image:https://img.shields.io/badge/License-MIT-green.svg[License]
+image:https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey[Platform]
+
+A fast, efficient CLI tool for managing YAML frontmatter in text files. Built with Go and optimized for performance with large files.
+
+== Features
+
+* ✅ **Add frontmatter** to files that don't have it
+* ✅ **Modify specific fields** without affecting others
+* ✅ **Retrieve frontmatter content** or specific fields
+* ✅ **Delete frontmatter** entirely or specific fields
+* ✅ **Nested field support** with dot notation (`object.field`)
+* ✅ **Multiple operations** in a single command
+* ✅ **Dry-run mode** to preview changes
+* ✅ **Performance optimized** for large files
+* ✅ **Safe atomic writes** to prevent data corruption
+* ✅ **Exit codes** for scripting and automation
+
+== Installation
+
+=== From Source
+
+[source,bash]
+----
+git clone https://github.com/username/frontmatter.git
+cd frontmatter
+go build -o frontmatter main.go
+----
+
+=== Using Go Install
+
+[source,bash]
+----
+go install github.com/username/frontmatter@latest
+----
+
+== Usage
+
+[source,bash]
+----
+frontmatter [get|set|delete] [--dry-run] [...] <file>
+----
+
+=== Commands
+
+==== Setting Fields
+
+Set a single field:
+[source,bash]
+----
+frontmatter set message="Hello World" file.md
+----
+
+Set nested fields with dot notation:
+[source,bash]
+----
+frontmatter set object.field=5 file.md
+----
+
+Set multiple fields at once:
+[source,bash]
+----
+frontmatter set a=1 b=value c="text with spaces" file.md
+----
+
+==== Getting Fields
+
+Get a specific field:
+[source,bash]
+----
+frontmatter get message file.md
+----
+
+Get the entire frontmatter:
+[source,bash]
+----
+frontmatter get file.md
+----
+
+==== Deleting Fields
+
+Delete the entire frontmatter:
+[source,bash]
+----
+frontmatter delete file.md
+----
+
+Delete specific fields:
+[source,bash]
+----
+frontmatter delete title file.md
+frontmatter delete first second file.md
+----
+
+Delete nested fields:
+[source,bash]
+----
+frontmatter delete object.field file.md
+----
+
+=== Flags
+
+==== `--dry-run`
+
+Preview changes without modifying the file:
+[source,bash]
+----
+frontmatter set title="New Title" --dry-run file.md
+----
+
+== Data Types
+
+The tool automatically detects and handles various data types:
+
+* **Strings**: `message="Hello World"`
+* **Integers**: `count=42`
+* **Floats**: `price=19.99`
+* **Booleans**: `published=true`
+* **Arrays**: `tags=[tag1,tag2,tag3]`
+* **Objects**: `config={"key":"value"}`
+
+== Examples
+
+=== Basic Usage
+
+Create a new file with frontmatter:
+[source,bash]
+----
+echo "# My Article" > article.md
+frontmatter set title="My First Post" author="John Doe" article.md
+----
+
+Result:
+[source,yaml]
+----
+---
+title: My First Post
+author: John Doe
+---
+# My Article
+----
+
+=== Working with Nested Data
+
+[source,bash]
+----
+frontmatter set config.database.host="localhost" config.database.port=5432 article.md
+----
+
+Result:
+[source,yaml]
+----
+---
+config:
+  database:
+    host: localhost
+    port: 5432
+---
+----
+
+=== Querying Data
+
+[source,bash]
+----
+# Get specific field
+frontmatter get title article.md
+# Output: My First Post
+
+# Get nested field
+frontmatter get config.database.host article.md
+# Output: localhost
+
+# Get entire frontmatter as YAML
+frontmatter get article.md
+----
+
+=== Batch Operations
+
+[source,bash]
+----
+# Set multiple fields
+frontmatter set \
+  title="Updated Title" \
+  updated="2025-06-06" \
+  tags="[tech,golang,cli]" \
+  article.md
+
+# Delete multiple fields
+frontmatter delete draft updated article.md
+----
+
+== Exit Codes
+
+The tool uses standard exit codes for scripting:
+
+* `0` - Success
+* `1` - General error (invalid arguments, file errors, etc.)
+* `2` - Not found (field doesn't exist, no frontmatter found)
+
+=== Scripting Example
+
+[source,bash]
+----
+#!/bin/bash
+if frontmatter get published article.md; then
+    echo "Article is published"
+else
+    echo "Article is not published or field doesn't exist"
+fi
+----
+
+== Performance
+
+The tool is optimized for performance with large files:
+
+* **Optimized I/O**: Only reads frontmatter section for `get` operations
+* **Atomic writes**: Uses temporary files to prevent corruption
+* **Memory efficient**: Streams large files instead of loading entirely into memory
+
+== File Format Support
+
+The tool works with any text file containing YAML frontmatter:
+
+* **Markdown files** (`.md`, `.markdown`)
+* **HTML files** (`.html`, `.htm`)
+* **Text files** (`.txt`)
+* **Any other text format**
+
+[source,yaml]
+----
+---
+title: My Document
+author: John Doe
+date: 2025-06-06
+tags: [example, demo]
+config:
+  theme: dark
+  language: en
+---
+
+Your document content goes here...
+----
+
+== Development
+
+=== Requirements
+
+* Go 1.24.1 or later
+* Dependencies: `gopkg.in/yaml.v3`
+
+=== Building
+
+[source,bash]
+----
+go build -o frontmatter main.go
+----
+
+=== Testing
+
+[source,bash]
+----
+go test -v
+----
+
+The test suite includes 30+ comprehensive end-to-end tests that are run on the binary to ensure correct functionality.
+
+== Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+=== Guidelines
+
+* Follow Go best practices and conventions
+* Add tests for new functionality
+* Update documentation as needed
+* Ensure all tests pass before submitting
+
+== License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+== Changelog
+
+See link:CHANGELOG.adoc[CHANGELOG.adoc] for detailed version history and release notes.
+
+== Acknowledgments
+
+* Built with https://gopkg.in/yaml.v3[yaml.v3] for YAML processing
+
+== Support
+
+If you encounter any issues or have questions:
+
+* Check the examples above
+* Review the test cases in `main_test.go`
+* Open an issue on GitHub
+* Verify your YAML syntax is valid
+
+---
+
+*Happy frontmatter managing! 🚀*
