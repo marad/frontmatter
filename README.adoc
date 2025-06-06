@@ -8,11 +8,11 @@
 
 = Frontmatter CLI Tool
 
-image:https://github.com/username/frontmatter/workflows/CI/badge.svg[CI Status]
+image:https://github.com/marad/frontmatter/workflows/CI/badge.svg[CI Status]
 image:https://img.shields.io/badge/Go-1.21+-blue.svg[Go Version]
 image:https://img.shields.io/badge/License-MIT-green.svg[License]
 image:https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey[Platform]
-image:https://codecov.io/gh/username/frontmatter/branch/main/graph/badge.svg[Coverage Status]
+image:https://codecov.io/gh/marad/frontmatter/branch/main/graph/badge.svg[Coverage Status]
 
 A fast, efficient CLI tool for managing YAML frontmatter in text files. Built with Go and optimized for performance with large files.
 
