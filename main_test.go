@@ -11,6 +11,32 @@ import (
 const testFile = "test_file.md"
 const testFileNoFrontmatter = "test_file_no_frontmatter.md"
 const testFileEmpty = "test_file_empty.md"
+const binaryName = "frontmatter"
+
+// TestMain runs before all tests and builds the binary once
+func TestMain(m *testing.M) {
+	// Build the binary once at the start
+	if err := buildBinary(); err != nil {
+		fmt.Printf("Failed to build binary: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Run all tests
+	code := m.Run()
+
+	// Clean up the binary after all tests
+	os.Remove(binaryName)
+
+	os.Exit(code)
+}
+
+func buildBinary() error {
+	buildCmd := exec.Command("go", "build", "-o", binaryName, "main.go")
+	if err := buildCmd.Run(); err != nil {
+		return fmt.Errorf("failed to build binary: %w", err)
+	}
+	return nil
+}
 
 func setupTestFile(content string) error {
 	return os.WriteFile(testFile, []byte(content), 0644)
@@ -28,19 +54,15 @@ func cleanupTestFiles() {
 	os.Remove(testFile)
 	os.Remove(testFileNoFrontmatter)
 	os.Remove(testFileEmpty)
-	os.Remove("frontmatter") // Remove binary
 }
 
 func runCmd(args ...string) (string, string, error) {
-	// Build the binary first if it doesn't exist
-	if _, err := os.Stat("./frontmatter"); os.IsNotExist(err) {
-		buildCmd := exec.Command("go", "build", "-o", "frontmatter", "main.go")
-		if err := buildCmd.Run(); err != nil {
-			return "", "", fmt.Errorf("failed to build binary: %w", err)
-		}
+	// The binary should already exist from TestMain
+	if _, err := os.Stat("./" + binaryName); os.IsNotExist(err) {
+		return "", "", fmt.Errorf("binary %s does not exist - TestMain should have built it", binaryName)
 	}
 
-	cmd := exec.Command("./frontmatter", args...)
+	cmd := exec.Command("./"+binaryName, args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
