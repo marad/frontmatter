@@ -1,6 +1,6 @@
-:toc: up
-:toclevels: 1
-:sectnums:
+// :toc: up
+// :toclevels: 1
+// :sectnums:
 :source-highlighter: highlight.js
 :icons: font
 :experimental:
