@@ -73,7 +73,7 @@ func run(args []string) error {
 
 	switch command {
 	case "get":
-		return handleGet(args, dryRun)
+		return handleGet(args)
 	case "set":
 		return handleSet(args, dryRun)
 	case "delete":
@@ -155,8 +155,8 @@ func readFileContent(filePath string) (string, string, error) {
 	return frontmatterContent.String(), bodyContent.String(), nil
 }
 
-func parseFrontmatter(fmString string) (map[string]interface{}, error) {
-	data := make(map[string]interface{})
+func parseFrontmatter(fmString string) (map[string]any, error) {
+	data := make(map[string]any)
 	if strings.TrimSpace(fmString) == "" {
 		return data, nil // Empty frontmatter is valid
 	}
@@ -167,7 +167,7 @@ func parseFrontmatter(fmString string) (map[string]interface{}, error) {
 	return data, nil
 }
 
-func serializeFrontmatter(data map[string]interface{}) (string, error) {
+func serializeFrontmatter(data map[string]any) (string, error) {
 	if len(data) == 0 {
 		return "", nil // No data, no frontmatter string
 	}
@@ -211,7 +211,7 @@ func writeFileContent(filePath, fmString, bodyString string, dryRun bool) error 
 	return os.WriteFile(filePath, []byte(finalContent.String()), 0644)
 }
 
-func handleGet(args []string, dryRun bool) error {
+func handleGet(args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("no file specified for get")
 	}
@@ -256,7 +256,7 @@ func handleGet(args []string, dryRun bool) error {
 
 	// If value is a map or slice, YAML marshal it. Otherwise, print directly.
 	switch v := value.(type) {
-	case map[string]interface{}, []interface{}, map[interface{}]interface{}:
+	case map[string]any, []any, map[any]any:
 		yamlBytes, err := yaml.Marshal(v)
 		if err != nil {
 			return fmt.Errorf("failed to marshal value for key '%s': %w", key, err)
@@ -289,7 +289,7 @@ func handleSet(args []string, dryRun bool) error {
 		// For now, let's try to proceed with an empty map if parsing fails, effectively overwriting.
 		// A stricter approach would be: return fmt.Errorf("failed to parse existing frontmatter: %w", err)
 		fmt.Fprintf(os.Stderr, "Warning: could not parse existing frontmatter, new values will overwrite or be added to a new frontmatter block: %v\n", err)
-		data = make(map[string]interface{})
+		data = make(map[string]any)
 	}
 
 	for _, kvPair := range setArgs {
@@ -300,7 +300,7 @@ func handleSet(args []string, dryRun bool) error {
 		keyPath := parts[0]
 		valueStr := parts[1]
 
-		var parsedValue interface{}
+		var parsedValue any
 		// Try to parse value as YAML/JSON scalar types
 		if valInt, err := strconv.ParseInt(valueStr, 10, 64); err == nil {
 			parsedValue = valInt
@@ -311,7 +311,7 @@ func handleSet(args []string, dryRun bool) error {
 		} else if strings.HasPrefix(valueStr, "[") && strings.HasSuffix(valueStr, "]") ||
 			strings.HasPrefix(valueStr, "{") && strings.HasSuffix(valueStr, "}") {
 			// Attempt to parse as YAML if it looks like a list or map
-			var yamlValue interface{}
+			var yamlValue any
 			if err := yaml.Unmarshal([]byte(valueStr), &yamlValue); err == nil {
 				parsedValue = yamlValue
 			} else {
@@ -320,12 +320,12 @@ func handleSet(args []string, dryRun bool) error {
 			}
 		} else if strings.HasPrefix(valueStr, "{") && strings.HasSuffix(valueStr, "}") {
 			// Attempt to parse JSON-like map first
-			var jsonValue map[string]interface{}
+			var jsonValue map[string]any
 			if err := json.Unmarshal([]byte(valueStr), &jsonValue); err == nil {
 				parsedValue = jsonValue
 			} else {
 				// Fallback to YAML
-				var yamlValue interface{}
+				var yamlValue any
 				if err2 := yaml.Unmarshal([]byte(valueStr), &yamlValue); err2 == nil {
 					parsedValue = yamlValue
 				} else {
@@ -586,7 +586,7 @@ func writeFileContentSafe(filePath, newFmString string, info *FrontmatterInfo) e
 }
 
 // setValueByPath sets a value in a nested map structure based on a dot-separated path.
-func setValueByPath(data map[string]interface{}, path string, value interface{}) error {
+func setValueByPath(data map[string]any, path string, value any) error {
 	parts := strings.Split(path, ".")
 	currentMap := data
 
@@ -597,15 +597,15 @@ func setValueByPath(data map[string]interface{}, path string, value interface{})
 		} else {
 			// Navigate or create nested map
 			if _, ok := currentMap[part]; !ok {
-				currentMap[part] = make(map[string]interface{})
+				currentMap[part] = make(map[string]any)
 			}
-			nestedMap, ok := currentMap[part].(map[string]interface{})
+			nestedMap, ok := currentMap[part].(map[string]any)
 			if !ok {
 				// Path conflict: part exists but is not a map.
 				// Overwrite with a new map to continue, or return an error.
 				// For simplicity, let's overwrite.
 				// return fmt.Errorf("path conflict: '%s' in '%s' is not a map", part, path)
-				newMap := make(map[string]interface{})
+				newMap := make(map[string]any)
 				currentMap[part] = newMap
 				nestedMap = newMap
 			}
@@ -616,12 +616,12 @@ func setValueByPath(data map[string]interface{}, path string, value interface{})
 }
 
 // getValueByPath retrieves a value from a nested map structure based on a dot-separated path.
-func getValueByPath(data map[string]interface{}, path string) (interface{}, bool) {
+func getValueByPath(data map[string]any, path string) (any, bool) {
 	parts := strings.Split(path, ".")
-	var currentValue interface{} = data
+	var currentValue any = data
 
 	for _, part := range parts {
-		currentMap, ok := currentValue.(map[string]interface{})
+		currentMap, ok := currentValue.(map[string]any)
 		if !ok {
 			// If at any point the path does not lead to a map, the key is not found as specified.
 			return nil, false
@@ -636,7 +636,7 @@ func getValueByPath(data map[string]interface{}, path string) (interface{}, bool
 }
 
 // deleteValueByPath removes a value from a nested map structure based on a dot-separated path.
-func deleteValueByPath(data map[string]interface{}, path string) bool {
+func deleteValueByPath(data map[string]any, path string) bool {
 	parts := strings.Split(path, ".")
 
 	// If there's only one part, delete directly from the root map
@@ -647,9 +647,9 @@ func deleteValueByPath(data map[string]interface{}, path string) bool {
 	}
 
 	// Navigate to the parent of the field to delete
-	var currentValue interface{} = data
+	var currentValue any = data
 	for _, part := range parts[:len(parts)-1] {
-		currentMap, ok := currentValue.(map[string]interface{})
+		currentMap, ok := currentValue.(map[string]any)
 		if !ok {
 			// Path doesn't exist, nothing to delete
 			return false
@@ -663,7 +663,7 @@ func deleteValueByPath(data map[string]interface{}, path string) bool {
 	}
 
 	// Delete the final key
-	if finalMap, ok := currentValue.(map[string]interface{}); ok {
+	if finalMap, ok := currentValue.(map[string]any); ok {
 		finalKey := parts[len(parts)-1]
 		_, existed := finalMap[finalKey]
 		delete(finalMap, finalKey)
