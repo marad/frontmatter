@@ -16,7 +16,7 @@ import (
 
 const frontmatterSeparator = "---"
 
-// FrontmatterInfo zawiera informacje o pozycji frontmatter w pliku
+// FrontmatterInfo contains information about frontmatter position in file
 type FrontmatterInfo struct {
 	Content  string
 	StartPos int64
@@ -219,7 +219,7 @@ func handleGet(args []string) error {
 	filePath := args[len(args)-1]
 	keys := args[:len(args)-1]
 
-	// Używamy zoptymalizowanego odczytu
+	// Use optimized reading
 	info, err := readFrontmatterInfo(filePath)
 	if err != nil {
 		return err
@@ -277,7 +277,7 @@ func handleSet(args []string, dryRun bool) error {
 	filePath := args[len(args)-1]
 	setArgs := args[:len(args)-1]
 
-	// Używamy zoptymalizowanego odczytu
+	// Use optimized reading
 	info, err := readFrontmatterInfo(filePath)
 	if err != nil {
 		return err
@@ -357,7 +357,7 @@ func handleDelete(args []string, dryRun bool) error {
 	filePath := args[len(args)-1]
 	fieldsToDelete := args[:len(args)-1]
 
-	// Dla delete używamy bezpieczniejszej metody - całego odczytu pliku
+	// For delete we use safer method - reading the entire file
 	fmString, bodyString, err := readFileContent(filePath)
 	if err != nil {
 		// If file doesn't exist, nothing to delete.
@@ -433,7 +433,7 @@ func readFrontmatterInfo(filePath string) (*FrontmatterInfo, error) {
 		if trimmed == frontmatterSeparator && separatorCount < 2 {
 			separatorCount++
 			if separatorCount == 2 {
-				// Znaleźliśmy koniec frontmatter
+				// Found end of frontmatter
 				return &FrontmatterInfo{
 					Content:  frontmatterContent.String(),
 					StartPos: 0,
@@ -450,8 +450,8 @@ func readFrontmatterInfo(filePath string) (*FrontmatterInfo, error) {
 		if separatorCount == 1 {
 			frontmatterContent.WriteString(line)
 		} else if separatorCount == 0 {
-			// Nie ma frontmatter na początku
-			if err == io.EOF || bytesRead > 1024 { // Sprawdź tylko pierwsze 1KB
+			// No frontmatter at the beginning
+			if err == io.EOF || bytesRead > 1024 { // Check only first 1KB
 				return &FrontmatterInfo{Content: "", StartPos: 0, EndPos: 0, HasFM: false}, nil
 			}
 		}
@@ -461,7 +461,7 @@ func readFrontmatterInfo(filePath string) (*FrontmatterInfo, error) {
 		}
 	}
 
-	// Niepełny frontmatter lub brak
+	// Incomplete frontmatter or none
 	return &FrontmatterInfo{Content: "", StartPos: 0, EndPos: 0, HasFM: false}, nil
 }
 
@@ -473,12 +473,12 @@ func readBodyFromPosition(filePath string, startPos int64) (string, error) {
 	}
 	defer file.Close()
 
-	// Przejdź do pozycji po frontmatter
+	// Seek to position after frontmatter
 	if _, err := file.Seek(startPos, 0); err != nil {
 		return "", fmt.Errorf("failed to seek to position %d: %w", startPos, err)
 	}
 
-	// Przeczytaj resztę pliku
+	// Read the rest of the file
 	bodyBytes, err := io.ReadAll(file)
 	if err != nil {
 		return "", fmt.Errorf("failed to read body content: %w", err)
@@ -493,8 +493,8 @@ func writeOptimizedFrontmatter(filePath, newFmString string, info *FrontmatterIn
 		return writeFileContentForDryRun(filePath, newFmString, info)
 	}
 
-	// Dla bezpieczeństwa, zawsze używamy przepisania całego pliku
-	// In-place editing jest ryzykowne i może uszkodzić dane
+	// For safety, always use complete file rewriting
+	// In-place editing is risky and can damage data
 	return writeFileContentSafe(filePath, newFmString, info)
 }
 
@@ -514,7 +514,7 @@ func writeFileContentForDryRun(filePath, newFmString string, info *FrontmatterIn
 		finalContent.WriteString("\n")
 	}
 
-	// Dodaj body content jeśli istnieje
+	// Add body content if it exists
 	if info.HasFM && info.EndPos > 0 {
 		bodyContent, err := readBodyFromPosition(filePath, info.EndPos)
 		if err != nil {
@@ -522,7 +522,7 @@ func writeFileContentForDryRun(filePath, newFmString string, info *FrontmatterIn
 		}
 		finalContent.WriteString(bodyContent)
 	} else if !info.HasFM {
-		// Cały plik to body
+		// Entire file is body
 		content, err := os.ReadFile(filePath)
 		if err != nil && !os.IsNotExist(err) {
 			return err
@@ -552,7 +552,7 @@ func writeFileContentSafe(filePath, newFmString string, info *FrontmatterInfo) e
 		finalContent.WriteString("\n")
 	}
 
-	// Dodaj body content jeśli istnieje
+	// Add body content if it exists
 	if info.HasFM && info.EndPos > 0 {
 		bodyContent, err := readBodyFromPosition(filePath, info.EndPos)
 		if err != nil {
@@ -560,7 +560,7 @@ func writeFileContentSafe(filePath, newFmString string, info *FrontmatterInfo) e
 		}
 		finalContent.WriteString(bodyContent)
 	} else if !info.HasFM {
-		// Cały plik to body - przeczytaj go w całości
+		// Entire file is body - read it completely
 		content, err := os.ReadFile(filePath)
 		if err != nil && !os.IsNotExist(err) {
 			return err
@@ -570,15 +570,15 @@ func writeFileContentSafe(filePath, newFmString string, info *FrontmatterInfo) e
 		}
 	}
 
-	// Bezpieczny zapis: użyj pliku tymczasowego
+	// Safe write: use temporary file
 	tempFile := filePath + ".tmp"
 	if err := os.WriteFile(tempFile, []byte(finalContent.String()), 0644); err != nil {
 		return fmt.Errorf("failed to write temporary file: %w", err)
 	}
 
-	// Atomowe przeniesienie
+	// Atomic move
 	if err := os.Rename(tempFile, filePath); err != nil {
-		os.Remove(tempFile) // Oczyść w przypadku błędu
+		os.Remove(tempFile) // Clean up on error
 		return fmt.Errorf("failed to rename temporary file: %w", err)
 	}
 

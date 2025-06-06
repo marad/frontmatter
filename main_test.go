@@ -550,7 +550,7 @@ func TestJSONMapValueParsing(t *testing.T) {
 	}
 	defer os.Remove(file)
 
-	// ustawienie wartości jako JSON-like map
+	// setting value as JSON-like map
 	_, stderr, err := runCmd("set", `config={"x":1,"y":"two"}`, file)
 	assertNoError(t, err, stderr)
 	data, _ := os.ReadFile(file)
