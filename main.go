@@ -50,16 +50,13 @@ func run(args []string) error {
 	args = args[1:]
 
 	dryRun := false
-	deleteFrontmatter := false
 
-	// Parse global flags like --dry-run or --delete
+	// Parse global flags like --dry-run
 	processedArgs := []string{}
 	for _, arg := range args {
 		switch arg {
 		case "--dry-run":
 			dryRun = true
-		case "--delete": // This is a custom flag for the delete functionality
-			deleteFrontmatter = true
 		default:
 			processedArgs = append(processedArgs, arg)
 		}
@@ -70,10 +67,9 @@ func run(args []string) error {
 	case "get":
 		return handleGet(args, dryRun)
 	case "set":
-		if deleteFrontmatter {
-			return handleDelete(args, dryRun)
-		}
 		return handleSet(args, dryRun)
+	case "delete":
+		return handleDelete(args, dryRun)
 	default:
 		printUsage()
 		return fmt.Errorf("unknown command: %s", command)
@@ -81,14 +77,17 @@ func run(args []string) error {
 }
 
 func printUsage() {
-	fmt.Println("Usage: frontmatter [get|set] [--dry-run] [--delete] [key=value...] <file>")
+	fmt.Println("Usage: frontmatter [get|set|delete] [--dry-run] [...] <file>")
 	fmt.Println("Examples:")
 	fmt.Println("  frontmatter set message=\"Hello World\" file.md")
 	fmt.Println("  frontmatter set object.field=5 file.md")
 	fmt.Println("  frontmatter set a=1 b=value file.md")
 	fmt.Println("  frontmatter get message file.md")
 	fmt.Println("  frontmatter get file.md")
-	fmt.Println("  frontmatter set --delete file.md")
+	fmt.Println("  frontmatter delete file.md")
+	fmt.Println("  frontmatter delete title file.md")
+	fmt.Println("  frontmatter delete first second file.md")
+	fmt.Println("  frontmatter delete object.field file.md")
 }
 
 func readFileContent(filePath string) (string, string, error) {
@@ -346,13 +345,14 @@ func handleSet(args []string, dryRun bool) error {
 }
 
 func handleDelete(args []string, dryRun bool) error {
-	if len(args) != 1 {
+	if len(args) < 1 {
 		return fmt.Errorf("file path must be specified for delete")
 	}
-	filePath := args[0]
 
-	// Read the file to get the body content, ignore frontmatter
-	_, bodyString, err := readFileContent(filePath)
+	filePath := args[len(args)-1]
+	fieldsToDelete := args[:len(args)-1]
+
+	fmString, bodyString, err := readFileContent(filePath)
 	if err != nil {
 		// If file doesn't exist, nothing to delete.
 		if os.IsNotExist(err) {
@@ -364,8 +364,39 @@ func handleDelete(args []string, dryRun bool) error {
 		return err
 	}
 
-	// For delete, the new frontmatter string is empty.
-	return writeFileContent(filePath, "", bodyString, dryRun)
+	if strings.TrimSpace(fmString) == "" {
+		// No frontmatter to delete
+		if dryRun {
+			fmt.Print(bodyString)
+		} else {
+			return writeFileContent(filePath, "", bodyString, false)
+		}
+		return nil
+	}
+
+	// If no fields specified, delete entire frontmatter
+	if len(fieldsToDelete) == 0 {
+		return writeFileContent(filePath, "", bodyString, dryRun)
+	}
+
+	// Parse existing frontmatter
+	data, err := parseFrontmatter(fmString)
+	if err != nil {
+		return fmt.Errorf("failed to parse existing frontmatter: %w", err)
+	}
+
+	// Delete specified fields
+	for _, fieldPath := range fieldsToDelete {
+		deleteValueByPath(data, fieldPath)
+	}
+
+	// Serialize updated frontmatter
+	newFmString, err := serializeFrontmatter(data)
+	if err != nil {
+		return err
+	}
+
+	return writeFileContent(filePath, newFmString, bodyString, dryRun)
 }
 
 // setValueByPath sets a value in a nested map structure based on a dot-separated path.
@@ -416,4 +447,42 @@ func getValueByPath(data map[string]interface{}, path string) (interface{}, bool
 		currentValue = value
 	}
 	return currentValue, true
+}
+
+// deleteValueByPath removes a value from a nested map structure based on a dot-separated path.
+func deleteValueByPath(data map[string]interface{}, path string) bool {
+	parts := strings.Split(path, ".")
+
+	// If there's only one part, delete directly from the root map
+	if len(parts) == 1 {
+		_, existed := data[parts[0]]
+		delete(data, parts[0])
+		return existed
+	}
+
+	// Navigate to the parent of the field to delete
+	var currentValue interface{} = data
+	for _, part := range parts[:len(parts)-1] {
+		currentMap, ok := currentValue.(map[string]interface{})
+		if !ok {
+			// Path doesn't exist, nothing to delete
+			return false
+		}
+		value, found := currentMap[part]
+		if !found {
+			// Path doesn't exist, nothing to delete
+			return false
+		}
+		currentValue = value
+	}
+
+	// Delete the final key
+	if finalMap, ok := currentValue.(map[string]interface{}); ok {
+		finalKey := parts[len(parts)-1]
+		_, existed := finalMap[finalKey]
+		delete(finalMap, finalKey)
+		return existed
+	}
+
+	return false
 }

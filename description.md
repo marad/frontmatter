@@ -42,6 +42,22 @@ Wyświetlenie całego frontmatter z pliku na stdout:
     frontmatter get file.md
 ``` 
 
+Usunięcie całego frontmatter z pliku:
+```bash
+    frontmatter delete file.md
+```
+
+Usunięcie pola z frontmatter z pliku:
+```bash
+    frontmatter delete title file.md # Usunięcie jednego pola
+    frontmatter delete first second file.md # Usunięcie pól first i second z pliku
+```
+
+Usunięcie pola zagnieżdżonego z pliku:
+```bash
+    frontmatter delete object.field file.md
+```
+
 Pobranie nieistniejącego pola powinno zwrócić kod błędu 2 i nie wypisać niczego na stdout.
 
 Pobranie frontmatter z pliku, które nie zawiera frontmatter powinno zwrócić kod błędu 2 i nie wypisywać niczego na stdout.

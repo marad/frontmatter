@@ -304,7 +304,7 @@ func TestDeleteFrontmatter(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, stderr, err := runCmd("set", "--delete", testFile)
+	_, stderr, err := runCmd("delete", testFile)
 	assertNoError(t, err, stderr)
 
 	content, _ := os.ReadFile(testFile)
@@ -323,7 +323,7 @@ func TestDeleteFrontmatterDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, stderr, err := runCmd("set", "--delete", "--dry-run", testFile)
+	stdout, stderr, err := runCmd("delete", "--dry-run", testFile)
 	assertNoError(t, err, stderr)
 	if strings.Contains(stdout, "---") || strings.Contains(stdout, "delete: this") {
 		t.Errorf("Dry run output for delete still contains frontmatter: %s", stdout)
@@ -457,7 +457,7 @@ func TestOnlyFrontmatterFileCases(t *testing.T) {
 	}
 
 	// delete frontmatter
-	_, stderr, err = runCmd("set", "--delete", file)
+	_, stderr, err = runCmd("delete", file)
 	assertNoError(t, err, stderr)
 	data, _ = os.ReadFile(file)
 	sData = string(data)
@@ -466,7 +466,7 @@ func TestOnlyFrontmatterFileCases(t *testing.T) {
 	}
 
 	// dry-run delete
-	stdout, stderr, err = runCmd("set", "--delete", "--dry-run", file)
+	stdout, stderr, err = runCmd("delete", "--dry-run", file)
 	assertNoError(t, err, stderr)
 	if strings.TrimSpace(stdout) != "" {
 		t.Errorf("Expected dry-run delete to produce empty output, got: %s", stdout)
@@ -488,7 +488,7 @@ func TestBodyWithSeparators(t *testing.T) {
 	assertStringContains(t, stdout, "key: val")
 
 	// delete frontmatter should leave rest including separators
-	_, stderr, err = runCmd("set", "--delete", file)
+	_, stderr, err = runCmd("delete", file)
 	assertNoError(t, err, stderr)
 	data, _ := os.ReadFile(file)
 	sData := string(data)
@@ -551,5 +551,134 @@ func TestGetAllFromFileWithoutFrontmatter(t *testing.T) {
 	trimmedStdout := strings.TrimSpace(stdout)
 	if trimmedStdout != "" {
 		t.Errorf("Expected no output for 404 case, got '%s'", trimmedStdout)
+	}
+}
+
+func TestDeleteSingleField(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\ntitle: Hello\nauthor: John\ndate: 2023-01-01\n---\nBody content."
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := runCmd("delete", "author", testFile)
+	assertNoError(t, err, stderr)
+
+	stdout, stderr, err := runCmd("get", testFile)
+	assertNoError(t, err, stderr)
+
+	// Should still have title and date, but not author
+	assertStringContains(t, stdout, "title: Hello")
+	assertStringContains(t, stdout, "date: 2023-01-01")
+	if strings.Contains(stdout, "author") {
+		t.Errorf("Field 'author' should have been deleted, but was found in: %s", stdout)
+	}
+}
+
+func TestDeleteNestedField(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\ntitle: Test\nconfig:\n  debug: true\n  timeout: 30\n  nested:\n    value: deep\n---\nBody content."
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := runCmd("delete", "config.debug", testFile)
+	assertNoError(t, err, stderr)
+
+	stdout, stderr, err := runCmd("get", testFile)
+	assertNoError(t, err, stderr)
+
+	// Should still have title, config.timeout, and config.nested.value
+	assertStringContains(t, stdout, "title: Test")
+	assertStringContains(t, stdout, "timeout: 30")
+	assertStringContains(t, stdout, "value: deep")
+	if strings.Contains(stdout, "debug") {
+		t.Errorf("Field 'config.debug' should have been deleted, but was found in: %s", stdout)
+	}
+}
+
+func TestDeleteMultipleFields(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\ntitle: Test\nauthor: John\ndate: 2023-01-01\ntags:\n  - go\n  - cli\n---\nBody content."
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := runCmd("delete", "author", "date", testFile)
+	assertNoError(t, err, stderr)
+
+	stdout, stderr, err := runCmd("get", testFile)
+	assertNoError(t, err, stderr)
+
+	// Should still have title and tags, but not author or date
+	assertStringContains(t, stdout, "title: Test")
+	assertStringContains(t, stdout, "tags:")
+	assertStringContains(t, stdout, "- go")
+	if strings.Contains(stdout, "author") || strings.Contains(stdout, "date") {
+		t.Errorf("Fields 'author' and 'date' should have been deleted, but were found in: %s", stdout)
+	}
+}
+
+func TestDeleteNonExistentField(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\ntitle: Test\n---\nBody content."
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := runCmd("delete", "nonexistent", testFile)
+	assertNoError(t, err, stderr)
+
+	stdout, stderr, err := runCmd("get", testFile)
+	assertNoError(t, err, stderr)
+
+	// Should still have title unchanged
+	assertStringContains(t, stdout, "title: Test")
+}
+
+func TestDeleteFieldDryRun(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\ntitle: Test\nauthor: John\n---\nBody content."
+	originalContent := initialContent
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := runCmd("delete", "author", "--dry-run", testFile)
+	assertNoError(t, err, stderr)
+
+	// Should show result without author field
+	assertStringContains(t, stdout, "title: Test")
+	assertStringContains(t, stdout, "Body content.")
+	if strings.Contains(stdout, "author") {
+		t.Errorf("Dry run should not show deleted field 'author', but found in: %s", stdout)
+	}
+
+	// File should remain unchanged
+	currentContent, _ := os.ReadFile(testFile)
+	if string(currentContent) != originalContent {
+		t.Errorf("File was modified during dry run. Expected:\n%s\nGot:\n%s", originalContent, string(currentContent))
+	}
+}
+
+func TestDeleteDeepNestedField(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\nconfig:\n  database:\n    host: localhost\n    port: 5432\n    credentials:\n      user: admin\n      pass: secret\n---\nBody content."
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := runCmd("delete", "config.database.credentials.pass", testFile)
+	assertNoError(t, err, stderr)
+
+	stdout, stderr, err := runCmd("get", testFile)
+	assertNoError(t, err, stderr)
+
+	// Should still have other fields but not the password
+	assertStringContains(t, stdout, "host: localhost")
+	assertStringContains(t, stdout, "port: 5432")
+	assertStringContains(t, stdout, "user: admin")
+	if strings.Contains(stdout, "pass: secret") {
+		t.Errorf("Field 'config.database.credentials.pass' should have been deleted, but was found in: %s", stdout)
 	}
 }
