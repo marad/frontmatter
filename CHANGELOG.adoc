@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 The format is based on https://keepachangelog.com/en/1.0.0/[Keep a Changelog],
 and this project adheres to https://semver.org/spec/v2.0.0.html[Semantic Versioning].
 
-== [Unreleased]
+== [1.1.0] - 2025-11-14
 
 === Changed
 * Swapped YAML backend to `github.com/goccy/go-yaml` to control key/value quoting without regex post-processing.
