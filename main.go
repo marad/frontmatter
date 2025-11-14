@@ -2,18 +2,14 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
-	"unicode"
 
 	yaml "github.com/goccy/go-yaml"
-	"github.com/goccy/go-yaml/ast"
-	"github.com/goccy/go-yaml/token"
 )
 
 const frontmatterSeparator = "---"
@@ -174,114 +170,44 @@ func serializeFrontmatter(data map[string]any) (string, error) {
 		return "", nil
 	}
 
-	node, err := yaml.ValueToNode(data, yaml.UseLiteralStyleIfMultiline(true))
+	yamlBytes, err := yaml.MarshalWithOptions(data,
+		yaml.Indent(2),
+		yaml.UseLiteralStyleIfMultiline(true),
+	)
 	if err != nil {
-		return "", fmt.Errorf("failed to build YAML node: %w", err)
-	}
-	normalizeScalarStyles(node)
-
-	var b bytes.Buffer
-	encoder := yaml.NewEncoder(&b, yaml.Indent(2))
-	if err := encoder.Encode(node); err != nil {
-		encoder.Close()
 		return "", fmt.Errorf("failed to serialize YAML: %w", err)
 	}
-	if err := encoder.Close(); err != nil {
-		return "", fmt.Errorf("failed to finalize YAML encoding: %w", err)
-	}
 
-	return b.String(), nil
+	result := string(yamlBytes)
+	
+	// Unquote date-only strings (YYYY-MM-DD format)
+	// This is a targeted fix for a specific formatting requirement
+	result = unquoteDateOnlyStrings(result)
+	
+	return result, nil
 }
 
-func normalizeScalarStyles(node ast.Node) {
-	switch n := node.(type) {
-	case *ast.DocumentNode:
-		if n.Body != nil {
-			normalizeScalarStyles(n.Body)
+// unquoteDateOnlyStrings removes quotes from date-only values (YYYY-MM-DD)
+// while keeping timestamps and other quoted strings intact
+func unquoteDateOnlyStrings(yamlStr string) string {
+	lines := strings.Split(yamlStr, "\n")
+	for i, line := range lines {
+		// Match pattern: key: "YYYY-MM-DD"
+		if idx := strings.Index(line, ": \""); idx != -1 {
+			start := idx + 3
+			if end := strings.Index(line[start:], "\""); end != -1 {
+				value := line[start : start+end]
+				if isDateOnlyString(value) {
+					// Remove quotes around date
+					lines[i] = line[:idx+2] + value + line[start+end+1:]
+				}
+			}
 		}
-	case *ast.MappingNode:
-		for _, mv := range n.Values {
-			normalizeScalarStyles(mv)
-		}
-	case *ast.MappingValueNode:
-		ensurePlainKey(n.Key)
-		if n.Value != nil {
-			normalizeScalarStyles(n.Value)
-		}
-	case *ast.SequenceNode:
-		for _, v := range n.Values {
-			normalizeScalarStyles(v)
-		}
-	case *ast.StringNode:
-		relaxQuotedValue(n)
 	}
+	return strings.Join(lines, "\n")
 }
 
-func ensurePlainKey(key ast.MapKeyNode) {
-	switch k := key.(type) {
-	case *ast.StringNode:
-		enforcePlainKeyString(k)
-	case *ast.MappingKeyNode:
-		if inner, ok := k.Value.(ast.MapKeyNode); ok {
-			ensurePlainKey(inner)
-		}
-	}
-}
-
-func enforcePlainKeyString(node *ast.StringNode) {
-	plainValue, _ := decodeQuotedString(node.Value)
-	if shouldUsePlainKey(plainValue) {
-		setPlainStringToken(node, plainValue)
-	}
-}
-
-func relaxQuotedValue(node *ast.StringNode) {
-	value, wasQuoted := decodeQuotedString(node.Value)
-	if !wasQuoted {
-		return
-	}
-	if isDateOnlyString(value) {
-		setPlainStringToken(node, value)
-	}
-}
-
-func decodeQuotedString(value string) (string, bool) {
-	if len(value) < 2 {
-		return value, false
-	}
-	switch value[0] {
-	case '"':
-		if value[len(value)-1] != '"' {
-			return value, false
-		}
-		decoded, err := strconv.Unquote(value)
-		if err != nil {
-			return value, false
-		}
-		return decoded, true
-	case '\'':
-		if value[len(value)-1] != '\'' {
-			return value, false
-		}
-		inner := strings.ReplaceAll(value[1:len(value)-1], "''", "'")
-		return inner, true
-	default:
-		return value, false
-	}
-}
-
-func setPlainStringToken(node *ast.StringNode, value string) {
-	if node == nil {
-		return
-	}
-	node.Value = value
-	if node.Token != nil {
-		node.Token.Type = token.StringType
-		node.Token.Value = value
-		node.Token.Origin = value
-	}
-}
-
+// isDateOnlyString checks if a string matches YYYY-MM-DD format
 func isDateOnlyString(value string) bool {
 	if len(value) != 10 {
 		return false
@@ -296,18 +222,6 @@ func isDateOnlyString(value string) bool {
 			if value[i] < '0' || value[i] > '9' {
 				return false
 			}
-		}
-	}
-	return true
-}
-
-func shouldUsePlainKey(key string) bool {
-	if key == "" {
-		return false
-	}
-	for _, r := range key {
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-') {
-			return false
 		}
 	}
 	return true

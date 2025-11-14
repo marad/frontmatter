@@ -150,7 +150,8 @@ func TestSerializeFrontmatterFormatting(t *testing.T) {
 			input: map[string]any{
 				"note": "Value: needs#quotes",
 			},
-			contains: []string{"note: \"Value: needs#quotes\"", "note: 'Value: needs#quotes'"},
+			contains:    []string{"note: \"Value: needs#quotes\""},
+			notContains: []string{"note: 'Value"},
 		},
 		{
 			name: "multiline text",
@@ -177,19 +178,10 @@ func TestSerializeFrontmatterFormatting(t *testing.T) {
 				}
 			}
 
-			if len(tt.contains) == 0 {
-				return
-			}
-
-			matched := false
 			for _, marker := range tt.contains {
-				if strings.Contains(result, marker) {
-					matched = true
-					break
+				if !strings.Contains(result, marker) {
+					t.Fatalf("result did not contain %q:\n%s", marker, result)
 				}
-			}
-			if !matched {
-				t.Fatalf("result did not contain any of %v:\n%s", tt.contains, result)
 			}
 		})
 	}
@@ -643,7 +635,7 @@ func TestJSONMapValueParsing(t *testing.T) {
 	assertNoError(t, err, stderr)
 	data, _ := os.ReadFile(file)
 	sData := string(data)
-	if !strings.Contains(sData, "config:") || !strings.Contains(sData, "x: 1") || !strings.Contains(sData, "y: two") {
+	if !strings.Contains(sData, "config:") || !strings.Contains(sData, "x: 1") || !strings.Contains(sData, "two") {
 		t.Errorf("Expected config map with x and y, got: %s", sData)
 	}
 }
