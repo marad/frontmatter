@@ -14,7 +14,7 @@ Interfaces: keep small/behavioral; rely on std lib types where possible.
 Naming: CamelCase exported, lowerCamel internal; keep ExitError-style suffixes conveying intent.
 Errors: wrap with fmt.Errorf("context: %w", err); use custom ExitError only for CLI exit codes.
 Nil/zero handling: favor map initializations with make before nested writes (see setValueByPath).
-YAML handling: use yaml.v3 encoder with SetIndent(2); keep frontmatter separators as constants.
+YAML handling: use goccy/go-yaml encoder with Indent(2) plus our AST normalization helpers; keep frontmatter separators as constants.
 Testing: maintain helper assertions in main_test.go; prefer table tests when expanding coverage.
 IO: always close files via defer; use bufio.Reader for multi-pass parsing as done in run path.
 Dry-run semantics: keep write paths printing to stdout without touching disk (see writeFileContentForDryRun).

@@ -6,18 +6,20 @@ Swap the YAML backend while preserving serialized frontmatter semantics (quoting
 ## Detailed Steps
 1. **Inventory usage**
    - Run `rg -n "gopkg.in/yaml.v3" -g'*.go'` and `rg -n "gopkg.in/yaml.v3"` to capture all code/doc references; paste the file list into this plan for traceability.
+     - Current hits: `main.go`, `README.adoc`, `go.mod`, `CHANGELOG.adoc`, `go.sum`, `plans/001-replace-yaml-lib.md` (self-reference)
    - Check `go.mod`/`go.sum` manually and note any indirect dependencies that might also fall away once the old module is removed.
-   - Flag any helper functions or structs typed against `yaml.Node`, `yaml.Encoder`, etc., because they will need targeted rewrites.
+   - Flag any helper functions or structs typed against `yaml.Node`, `yaml.Encoder`, etc., because they will need targeted rewrites. Currently only `serializeFrontmatter` and regex helpers in `main.go` depend on yaml.v3 types.
 
 2. **Behavior capture**
    - Record the current `serializeFrontmatter` output for a diverse fixture set (basic strings, URLs, timestamps, anchors, multi-line text). Keep copies under `docs/fixtures/` if helpful.
-   - Note where we rely on `SetIndent(2)`, custom regex cleanup for quoted keys, or any other post-processing so we can validate parity.
-   - Capture how errors are wrapped (e.g., `fmt.Errorf` vs `ExitError`) to ensure we keep CLI messaging stable.
+     - Baseline samples captured in `docs/fixtures/serializer-baseline.txt` via `go run . set ... --dry-run`, covering simple scalars, URLs, timestamps, colon/hash characters, and multi-line text.
+   - Note where we rely on `SetIndent(2)`, custom regex cleanup for quoted keys, or any other post-processing so we can validate parity. Current code depends on `yaml.NewEncoder().SetIndent(2)` plus `regexp.MustCompile("(?m)^(\\s*)\"([A-Za-z0-9_-]+)\":")` for stripping quotes around keys.
+   - Capture how errors are wrapped (e.g., `fmt.Errorf` vs `ExitError`) to ensure we keep CLI messaging stable. Existing helpers wrap everything with `fmt.Errorf("context: %w", err)` except CLI-level not-found paths which return `&ExitError{Code:2}`.
 
 3. **Assess go-yaml API**
-   - Review `github.com/goccy/go-yaml` docs/examples focusing on `yaml.Marshal`, `yaml.Node`, `Encoder#SetIndent`, and style control like `yaml.WithStringStyle` or direct node `Style` mutations.
-   - Confirm whether go-yaml already emits bare keys/plain scalars, reducing the need for the regex cleanup step.
-   - Identify any incompatibilities (e.g., different error types, missing features) and log mitigation ideas in this plan before coding.
+   - Reviewed pkg.go.dev docs (v1.18.0) and README. Encoder options map cleanly to our needs: `yaml.NewEncoder(w, yaml.Indent(2), yaml.UseLiteralStyleIfMultiline(true))` etc., and we can still construct AST nodes via `yaml.ValueToNode`/`Encoder.EncodeToNode` to force `ast.StringNode` styles.
+   - go-yaml preserves anchors/aliases via struct tags and offers `WithSmartAnchor` plus `MarshalAnchor` callbacks, so anchor fidelity should improve relative to manual regex cleanup. It already emits bare keys for simple scalars, so we expect to drop the regex hack once Node styles are enforced where necessary.
+   - Errors now include positional metadata. We'll continue wrapping them with `fmt.Errorf("context: %w", err)` so CLI UX stays identical even though underlying error text becomes richer. No API gaps found; plan to stick with `yaml.MapSlice` when we need ordered output (not currently required).
 
 4. **Dependency update**
    - Run `go get github.com/goccy/go-yaml@latest` to add the module, then remove `gopkg.in/yaml.v3` imports from `go.mod`.

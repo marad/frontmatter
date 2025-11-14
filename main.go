@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
-	"gopkg.in/yaml.v3"
+	yaml "github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/token"
 )
 
 const frontmatterSeparator = "---"
@@ -169,20 +171,146 @@ func parseFrontmatter(fmString string) (map[string]any, error) {
 
 func serializeFrontmatter(data map[string]any) (string, error) {
 	if len(data) == 0 {
-		return "", nil // No data, no frontmatter string
+		return "", nil
 	}
-	var b bytes.Buffer
-	yamlEncoder := yaml.NewEncoder(&b)
-	yamlEncoder.SetIndent(2) // Common YAML indent
-	err := yamlEncoder.Encode(data)
+
+	node, err := yaml.ValueToNode(data, yaml.UseLiteralStyleIfMultiline(true))
 	if err != nil {
+		return "", fmt.Errorf("failed to build YAML node: %w", err)
+	}
+	normalizeScalarStyles(node)
+
+	var b bytes.Buffer
+	encoder := yaml.NewEncoder(&b, yaml.Indent(2))
+	if err := encoder.Encode(node); err != nil {
+		encoder.Close()
 		return "", fmt.Errorf("failed to serialize YAML: %w", err)
 	}
-	raw := b.String()
-	// Remove unnecessary quotes around simple keys
-	re := regexp.MustCompile(`(?m)^(\s*)"([A-Za-z0-9_-]+)":`)
-	cleaned := re.ReplaceAllString(raw, `$1$2:`)
-	return cleaned, nil
+	if err := encoder.Close(); err != nil {
+		return "", fmt.Errorf("failed to finalize YAML encoding: %w", err)
+	}
+
+	return b.String(), nil
+}
+
+func normalizeScalarStyles(node ast.Node) {
+	switch n := node.(type) {
+	case *ast.DocumentNode:
+		if n.Body != nil {
+			normalizeScalarStyles(n.Body)
+		}
+	case *ast.MappingNode:
+		for _, mv := range n.Values {
+			normalizeScalarStyles(mv)
+		}
+	case *ast.MappingValueNode:
+		ensurePlainKey(n.Key)
+		if n.Value != nil {
+			normalizeScalarStyles(n.Value)
+		}
+	case *ast.SequenceNode:
+		for _, v := range n.Values {
+			normalizeScalarStyles(v)
+		}
+	case *ast.StringNode:
+		relaxQuotedValue(n)
+	}
+}
+
+func ensurePlainKey(key ast.MapKeyNode) {
+	switch k := key.(type) {
+	case *ast.StringNode:
+		enforcePlainKeyString(k)
+	case *ast.MappingKeyNode:
+		if inner, ok := k.Value.(ast.MapKeyNode); ok {
+			ensurePlainKey(inner)
+		}
+	}
+}
+
+func enforcePlainKeyString(node *ast.StringNode) {
+	plainValue, _ := decodeQuotedString(node.Value)
+	if shouldUsePlainKey(plainValue) {
+		setPlainStringToken(node, plainValue)
+	}
+}
+
+func relaxQuotedValue(node *ast.StringNode) {
+	value, wasQuoted := decodeQuotedString(node.Value)
+	if !wasQuoted {
+		return
+	}
+	if isDateOnlyString(value) {
+		setPlainStringToken(node, value)
+	}
+}
+
+func decodeQuotedString(value string) (string, bool) {
+	if len(value) < 2 {
+		return value, false
+	}
+	switch value[0] {
+	case '"':
+		if value[len(value)-1] != '"' {
+			return value, false
+		}
+		decoded, err := strconv.Unquote(value)
+		if err != nil {
+			return value, false
+		}
+		return decoded, true
+	case '\'':
+		if value[len(value)-1] != '\'' {
+			return value, false
+		}
+		inner := strings.ReplaceAll(value[1:len(value)-1], "''", "'")
+		return inner, true
+	default:
+		return value, false
+	}
+}
+
+func setPlainStringToken(node *ast.StringNode, value string) {
+	if node == nil {
+		return
+	}
+	node.Value = value
+	if node.Token != nil {
+		node.Token.Type = token.StringType
+		node.Token.Value = value
+		node.Token.Origin = value
+	}
+}
+
+func isDateOnlyString(value string) bool {
+	if len(value) != 10 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		switch i {
+		case 4, 7:
+			if value[i] != '-' {
+				return false
+			}
+		default:
+			if value[i] < '0' || value[i] > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func shouldUsePlainKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func writeFileContent(filePath, fmString, bodyString string, dryRun bool) error {
@@ -236,12 +364,12 @@ func handleGet(args []string) error {
 	}
 
 	if len(keys) == 0 {
-		// Get all frontmatter
-		yamlBytes, err := yaml.Marshal(data)
+		// Get all frontmatter using the same serializer as write paths
+		fmString, err := serializeFrontmatter(data)
 		if err != nil {
-			return fmt.Errorf("failed to marshal data for get all: %w", err)
+			return fmt.Errorf("failed to serialize data for get all: %w", err)
 		}
-		fmt.Print(string(yamlBytes))
+		fmt.Print(fmString)
 		return nil
 	}
 

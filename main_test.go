@@ -119,6 +119,94 @@ func assertExitCode(t *testing.T, err error, expectedCode int) {
 	}
 }
 
+func TestSerializeFrontmatterFormatting(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		input       map[string]any
+		contains    []string
+		notContains []string
+	}{
+		{
+			name: "simple scalars",
+			input: map[string]any{
+				"title":     "Hello",
+				"count":     5,
+				"published": true,
+			},
+			contains:    []string{"title: Hello", "count: 5", "published: true"},
+			notContains: []string{"\"title\"", "\"count\"", "\"published\""},
+		},
+		{
+			name: "url and timestamp",
+			input: map[string]any{
+				"url":       "https://example.com/path?query=1",
+				"timestamp": "2025-11-14T10:30:00Z",
+			},
+			contains: []string{"url: https://example.com/path?query=1", "timestamp: \"2025-11-14T10:30:00Z\""},
+		},
+		{
+			name: "colon and hash",
+			input: map[string]any{
+				"note": "Value: needs#quotes",
+			},
+			contains: []string{"note: \"Value: needs#quotes\"", "note: 'Value: needs#quotes'"},
+		},
+		{
+			name: "multiline text",
+			input: map[string]any{
+				"description": "Line 1\nLine 2 with : colon",
+			},
+			contains: []string{"description: |-", "  Line 2 with : colon"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := serializeFrontmatter(tt.input)
+			if err != nil {
+				t.Fatalf("serializeFrontmatter returned error: %v", err)
+			}
+
+			for _, marker := range tt.notContains {
+				if marker == "" {
+					continue
+				}
+				if strings.Contains(result, marker) {
+					t.Fatalf("result unexpectedly contained %q:\n%s", marker, result)
+				}
+			}
+
+			if len(tt.contains) == 0 {
+				return
+			}
+
+			matched := false
+			for _, marker := range tt.contains {
+				if strings.Contains(result, marker) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				t.Fatalf("result did not contain any of %v:\n%s", tt.contains, result)
+			}
+		})
+	}
+}
+
+func TestGetAnchorsRoundTrip(t *testing.T) {
+	defer cleanupTestFiles()
+	initialContent := "---\ndefault: &default\n  name: base\ncopy: *default\n---\nBody"
+	if err := setupTestFile(initialContent); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := runCmd("get", "copy", testFile)
+	assertNoError(t, err, stderr)
+	assertStringContains(t, stdout, "name: base")
+}
+
 func TestSetSingleField(t *testing.T) {
 	defer cleanupTestFiles()
 	initialContent := "---\ntitle: Old Title\n---\nSome content"
