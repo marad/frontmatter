@@ -193,15 +193,18 @@ func unquoteDateOnlyStrings(yamlStr string) string {
 	lines := strings.Split(yamlStr, "\n")
 	for i, line := range lines {
 		// Match pattern: key: "YYYY-MM-DD"
-		if idx := strings.Index(line, ": \""); idx != -1 {
-			start := idx + 3
-			if end := strings.Index(line[start:], "\""); end != -1 {
-				value := line[start : start+end]
-				if isDateOnlyString(value) {
-					// Remove quotes around date
-					lines[i] = line[:idx+2] + value + line[start+end+1:]
-				}
-			}
+		prefix, after, found := strings.Cut(line, ": \"")
+		if !found {
+			continue
+		}
+		
+		value, suffix, found := strings.Cut(after, "\"")
+		if !found {
+			continue
+		}
+		
+		if isDateOnlyString(value) {
+			lines[i] = prefix + ": " + value + suffix
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -209,19 +212,16 @@ func unquoteDateOnlyStrings(yamlStr string) string {
 
 // isDateOnlyString checks if a string matches YYYY-MM-DD format
 func isDateOnlyString(value string) bool {
-	if len(value) != 10 {
+	if len(value) != 10 || value[4] != '-' || value[7] != '-' {
 		return false
 	}
-	for i := 0; i < len(value); i++ {
-		switch i {
-		case 4, 7:
-			if value[i] != '-' {
-				return false
-			}
-		default:
-			if value[i] < '0' || value[i] > '9' {
-				return false
-			}
+	
+	for i, c := range value {
+		if i == 4 || i == 7 {
+			continue // Already checked dashes
+		}
+		if c < '0' || c > '9' {
+			return false
 		}
 	}
 	return true
