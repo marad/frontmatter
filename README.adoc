@@ -259,7 +259,7 @@ Your document content goes here...
 === Requirements
 
 * Go 1.21+ (tested on 1.21.x through 1.24.x)
-* Dependencies: `gopkg.in/yaml.v3`
+* Dependencies: `github.com/goccy/go-yaml`
 
 === CI/CD
 
@@ -309,7 +309,7 @@ See link:CHANGELOG.adoc[CHANGELOG.adoc] for detailed version history and release
 
 == Acknowledgments
 
-* Built with https://gopkg.in/yaml.v3[yaml.v3] for YAML processing
+* Built with https://github.com/goccy/go-yaml[goccy/go-yaml] for YAML processing
 
 == Support
 

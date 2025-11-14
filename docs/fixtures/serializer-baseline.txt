@@ -1,0 +1,27 @@
+# Baseline serializeFrontmatter output (yaml.v3)
+
+## Simple scalars (title/count/published)
+---
+count: 5
+published: true
+title: Hello
+---
+
+## URL and timestamp values
+---
+timestamp: "2025-11-14T10:30:00Z"
+url: https://example.com/path?query=1
+---
+
+## Colon and hash characters
+---
+note: 'Value: needs#quotes'
+---
+
+## Multiline body text
+---
+description: |-
+  Line 1
+  Line 2 with : colon
+---
+

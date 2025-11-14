@@ -2,16 +2,14 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	yaml "github.com/goccy/go-yaml"
 )
 
 const frontmatterSeparator = "---"
@@ -169,20 +167,64 @@ func parseFrontmatter(fmString string) (map[string]any, error) {
 
 func serializeFrontmatter(data map[string]any) (string, error) {
 	if len(data) == 0 {
-		return "", nil // No data, no frontmatter string
+		return "", nil
 	}
-	var b bytes.Buffer
-	yamlEncoder := yaml.NewEncoder(&b)
-	yamlEncoder.SetIndent(2) // Common YAML indent
-	err := yamlEncoder.Encode(data)
+
+	yamlBytes, err := yaml.MarshalWithOptions(data,
+		yaml.Indent(2),
+		yaml.UseLiteralStyleIfMultiline(true),
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to serialize YAML: %w", err)
 	}
-	raw := b.String()
-	// Remove unnecessary quotes around simple keys
-	re := regexp.MustCompile(`(?m)^(\s*)"([A-Za-z0-9_-]+)":`)
-	cleaned := re.ReplaceAllString(raw, `$1$2:`)
-	return cleaned, nil
+
+	result := string(yamlBytes)
+	
+	// Unquote date-only strings (YYYY-MM-DD format)
+	// This is a targeted fix for a specific formatting requirement
+	result = unquoteDateOnlyStrings(result)
+	
+	return result, nil
+}
+
+// unquoteDateOnlyStrings removes quotes from date-only values (YYYY-MM-DD)
+// while keeping timestamps and other quoted strings intact
+func unquoteDateOnlyStrings(yamlStr string) string {
+	lines := strings.Split(yamlStr, "\n")
+	for i, line := range lines {
+		// Match pattern: key: "YYYY-MM-DD"
+		prefix, after, found := strings.Cut(line, ": \"")
+		if !found {
+			continue
+		}
+		
+		value, suffix, found := strings.Cut(after, "\"")
+		if !found {
+			continue
+		}
+		
+		if isDateOnlyString(value) {
+			lines[i] = prefix + ": " + value + suffix
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// isDateOnlyString checks if a string matches YYYY-MM-DD format
+func isDateOnlyString(value string) bool {
+	if len(value) != 10 || value[4] != '-' || value[7] != '-' {
+		return false
+	}
+	
+	for i, c := range value {
+		if i == 4 || i == 7 {
+			continue // Already checked dashes
+		}
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func writeFileContent(filePath, fmString, bodyString string, dryRun bool) error {
@@ -236,12 +278,12 @@ func handleGet(args []string) error {
 	}
 
 	if len(keys) == 0 {
-		// Get all frontmatter
-		yamlBytes, err := yaml.Marshal(data)
+		// Get all frontmatter using the same serializer as write paths
+		fmString, err := serializeFrontmatter(data)
 		if err != nil {
-			return fmt.Errorf("failed to marshal data for get all: %w", err)
+			return fmt.Errorf("failed to serialize data for get all: %w", err)
 		}
-		fmt.Print(string(yamlBytes))
+		fmt.Print(fmString)
 		return nil
 	}
 
